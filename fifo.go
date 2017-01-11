@@ -19,7 +19,7 @@ import (
 	"errors"
 )
 
-// LIFO represents an in-memory First In First Out cache.
+// FIFO represents an in-memory First In First Out cache.
 type FIFO struct {
 	size  int
 	bytes int
