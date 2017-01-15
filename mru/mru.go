@@ -15,6 +15,7 @@
 package mru
 
 import (
+	"bytes"
 	"container/list"
 	"errors"
 	"sync"
@@ -90,10 +91,10 @@ func (c *Cache) Del(key string) []byte {
 // Put puts a new item into the cache using the specified key. If the
 // size of the cache will rise above the allowed cache size, the oldest
 // items will be removed.
-func (c *Cache) Put(key string, val []byte) {
+func (c *Cache) Put(key string, val []byte) []byte {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	c.put(key, val)
+	return c.put(key, val)
 }
 
 // ---------------------------------------------------------------------------
@@ -142,20 +143,26 @@ func (c *Cache) del(key string) []byte {
 
 }
 
-func (c *Cache) put(key string, val []byte) {
+func (c *Cache) put(key string, val []byte) []byte {
 
-	// Delete the item
-
-	c.del(key)
-
-	// Get the length of the data
+	// Get the data length
 
 	sze := len(val)
+
+	// Check if value is same
+
+	if bytes.Equal(c.get(key), val) {
+		return val
+	}
+
+	// Delete the item if it exists
+
+	ret := c.del(key)
 
 	// The item is too big for caching
 
 	if sze > c.size {
-		return
+		return ret
 	}
 
 	// Free up some data from the cache
@@ -176,6 +183,6 @@ func (c *Cache) put(key string, val []byte) {
 
 	c.bytes += sze
 
-	return
+	return ret
 
 }

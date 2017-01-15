@@ -74,6 +74,16 @@ func TestMain(t *testing.T) {
 		So(c.Has("test4"), ShouldBeTrue)
 	})
 
+	Convey("Can insert duplicate", t, func() {
+		c.Put("test4", []byte("Bye"))
+		So(c.bytes, ShouldEqual, 10)
+		So(c.Has("test1"), ShouldBeFalse)
+		So(c.Has("test2"), ShouldBeTrue)
+		So(c.Has("test3"), ShouldBeFalse)
+		So(c.Has("test4"), ShouldBeTrue)
+		So(c.Get("test4"), ShouldResemble, []byte("Bye"))
+	})
+
 	Convey("------------------------------", t, nil)
 
 	Convey("Can get 1st item", t, func() {

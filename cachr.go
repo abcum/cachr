@@ -21,5 +21,5 @@ type Cacheable interface {
 	Has(string) bool
 	Get(string) []byte
 	Del(string) []byte
-	Put(string, []byte)
+	Put(string, []byte) []byte
 }
