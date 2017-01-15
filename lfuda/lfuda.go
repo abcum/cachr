@@ -1,0 +1,217 @@
+// Copyright © 2016 Abcum Ltd
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package lfuda
+
+import (
+	"bytes"
+	"container/list"
+	"errors"
+	"sync"
+	"time"
+)
+
+type elem struct {
+	sze int
+	cnt int
+	age int64
+	key string
+	val []byte
+}
+
+// Cache represents an in-memory Least Frequently Used cache with
+// Dynamic Ageing that is safe to use for concurrent writes from
+// multiple goroutines.
+type Cache struct {
+	size  int
+	lock  sync.Mutex
+	bytes int
+	queue *list.List
+	items map[string]*list.Element
+}
+
+// New creates and returns a LFUDA (Least Frequently Used) cache with
+// a maximum size specified in bytes. The cache size must be a number
+// greater than 0, otherwise en error will be returned.
+func New(size int) (*Cache, error) {
+
+	if size <= 0 {
+		return nil, errors.New("Size must be a positive number")
+	}
+
+	c := &Cache{
+		size:  size,
+		queue: list.New(),
+		items: make(map[string]*list.Element),
+	}
+
+	go func() {
+		for range time.Tick(1 * time.Minute) {
+			c.age()
+		}
+	}()
+
+	return c, nil
+
+}
+
+// Clr removes and clears every item from the cache, and resets its size.
+func (c *Cache) Clr() {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.clr()
+}
+
+// Has checks to see if the key exists in the cache, returning a true
+// if it exists and false if not.
+func (c *Cache) Has(key string) bool {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.has(key)
+}
+
+// Get looks up a key's value in the cache. If the value exists in the
+// cache then the value is returned, otherwise a nil byte slice is
+// returned.
+func (c *Cache) Get(key string) []byte {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.get(key)
+}
+
+// Del deletes a key from the cache. If the value existed in the cache
+// then the value is returned, otherwise a nil byte slice is returned.
+func (c *Cache) Del(key string) []byte {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.del(key)
+}
+
+// Put puts a new item into the cache using the specified key. If the
+// size of the cache will rise above the allowed cache size, the oldest
+// items will be removed.
+func (c *Cache) Put(key string, val []byte) []byte {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.put(key, val)
+}
+
+// ---------------------------------------------------------------------------
+
+func (c *Cache) clr() {
+
+	for k := range c.items {
+		delete(c.items, k)
+	}
+
+	c.queue.Init()
+
+	c.bytes = 0
+
+}
+
+func (c *Cache) has(key string) bool {
+
+	_, ok := c.items[key]
+
+	return ok
+
+}
+
+func (c *Cache) get(key string) []byte {
+
+	if item, ok := c.items[key]; ok {
+		item.Value.(*elem).cnt++
+		item.Value.(*elem).age = time.Now().Unix()
+		for next := item.Next(); next != nil && next.Value.(*elem).cnt < item.Value.(*elem).cnt; next = item.Next() {
+			c.queue.MoveAfter(item, next)
+		}
+		return item.Value.(*elem).val
+	}
+
+	return nil
+
+}
+
+func (c *Cache) del(key string) []byte {
+
+	if item, ok := c.items[key]; ok {
+		c.bytes -= item.Value.(*elem).sze
+		delete(c.items, key)
+		c.queue.Remove(item)
+		return item.Value.(*elem).val
+	}
+
+	return nil
+
+}
+
+func (c *Cache) put(key string, val []byte) []byte {
+
+	// Get the data length
+
+	sze := len(val)
+
+	// Check if value is same
+
+	if bytes.Equal(c.get(key), val) {
+		return val
+	}
+
+	// Delete the item if it exists
+
+	ret := c.del(key)
+
+	// The item is too big for caching
+
+	if sze > c.size {
+		return ret
+	}
+
+	// Free up some data from the cache
+
+	for c.queue.Len() > 0 && sze+c.bytes > c.size {
+		if item := c.queue.Front(); item != nil {
+			c.del(item.Value.(*elem).key)
+		}
+	}
+
+	// Insert the element into the cache
+
+	elem := &elem{sze: sze, key: key, val: val}
+
+	item := c.queue.PushFront(elem)
+
+	c.items[key] = item
+
+	c.bytes += sze
+
+	return ret
+
+}
+
+func (c *Cache) age() {
+
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	now := time.Now().Unix()
+
+	for item := c.queue.Front(); item != nil; item = item.Next() {
+		if diff := (now - item.Value.(*elem).age) / 60; diff > 0 {
+			item.Value.(*elem).cnt = item.Value.(*elem).cnt / int(diff)
+		}
+	}
+
+}
