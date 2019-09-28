@@ -1,7 +1,0 @@
-package: github.com/abcum/cachr
-import: []
-testImport:
-- package: github.com/smartystreets/goconvey
-  version: ^1.6.3
-  subpackages:
-  - convey
